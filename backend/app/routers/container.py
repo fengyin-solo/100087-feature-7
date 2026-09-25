@@ -5,7 +5,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app.schemas import ActionResult, EntryPayload, PageResult
+from app.schemas import ActionResult, BatchConditionPayload, EntryPayload, PageResult
 from app.services.container import ContainerService
 
 router = APIRouter(prefix="/api/container", tags=["集装箱档案"])
@@ -28,6 +28,59 @@ def list_entries(
         raise HTTPException(status_code=400, detail="每页最多 200 条，请缩小分页范围")
     items, total = service.list_entries(keyword=keyword, status=status, page=page, size=size)
     return PageResult(items=items, total=total, page=page, size=size)
+
+
+@router.get("/stats", response_model=dict)
+def condition_stats() -> dict[str, Any]:
+    """箱况统计：各箱况箱量、在场箱量与堆场台账对账结果。"""
+    return service.condition_stats()
+
+
+@router.post("/batch/preview", response_model=dict)
+def preview_batch(payload: BatchConditionPayload) -> dict[str, Any]:
+    """批量改箱况提交前预校验：把已报废、不在场等不能改的箱单独挑出来。
+
+    不落库，只返回本次勾选中可改与不可改两组，前端据此只提交可改的那几个。
+    """
+    eligible: list[dict[str, Any]] = []
+    blocked: list[dict[str, Any]] = []
+    for entry_id in dict.fromkeys(payload.entry_ids):  # 去重但保留顺序
+        entry, reason = service.check_batch_eligibility(entry_id)
+        container_no = str(entry.get("箱号", f"#{entry_id}")) if entry is not None else f"#{entry_id}"
+        item = {
+            "id": entry_id,
+            "箱号": container_no,
+            "当前箱况": entry.get("status") if entry is not None else None,
+        }
+        if reason:
+            item["原因"] = reason
+            blocked.append(item)
+        else:
+            eligible.append(item)
+    return {
+        "eligible": eligible,
+        "blocked": blocked,
+        "eligible_count": len(eligible),
+        "blocked_count": len(blocked),
+    }
+
+
+@router.post("/batch/condition", response_model=dict)
+def batch_update_condition(payload: BatchConditionPayload) -> dict[str, Any]:
+    """批量改箱况并统一填检验日期：逐箱处理，部分成功不回滚。
+
+    返回每个箱的成功/失败结果与失败原因；调用方修好数据后可用失败箱号原样重试。
+    """
+    try:
+        return service.batch_update_condition(
+            payload.entry_ids,
+            target_status=payload.target_status,
+            inspect_date=payload.inspect_date,
+            condition_grade=payload.condition_grade,
+        )
+    except ValueError as exc:
+        # 入参层面的整体错误（空选择、非法状态/日期）：一个箱都不会落库
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.get("/{entry_id}", response_model=dict)

@@ -28,6 +28,15 @@ class EntryPayload(BaseModel):
     remark: str | None = None
 
 
+class BatchConditionPayload(BaseModel):
+    """批量改箱况提交体：勾选的箱号 id、统一目标箱况与检验日期。"""
+
+    entry_ids: list[int] = Field(default_factory=list)
+    target_status: str
+    inspect_date: str
+    condition_grade: str | None = None
+
+
 
 class BerthEntry(BaseModel):
     """泊位计划明细结构。"""

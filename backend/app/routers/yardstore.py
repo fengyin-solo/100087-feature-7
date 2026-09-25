@@ -30,6 +30,12 @@ def list_entries(
     return PageResult(items=items, total=total, page=page, size=size)
 
 
+@router.get("/stats", response_model=dict)
+def yard_stats() -> dict[str, Any]:
+    """堆场台账统计：在场堆存箱量、今日进出与箱况对账结果。"""
+    return service.yard_stats()
+
+
 @router.get("/{entry_id}", response_model=dict)
 def get_entry(entry_id: int) -> dict:
     """读取单条堆存单明细；不存在时给出可读的错误说明。"""

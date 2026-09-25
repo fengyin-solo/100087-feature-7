@@ -12,9 +12,10 @@
     </header>
 
     <div class="stat-row">
-      <article v-for="item in stats" :key="item.label" class="stat-card">
+      <article v-for="item in statsCards" :key="item.label" class="stat-card">
         <span class="stat-label">{{ item.label }}</span>
-        <strong class="stat-value">{{ item.value }}</strong>
+        <strong class="stat-value" :class="item.tone">{{ item.value }}</strong>
+        <span v-if="item.hint" class="stat-hint" :class="item.tone">{{ item.hint }}</span>
       </article>
     </div>
 
@@ -63,7 +64,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
 import { request } from '@/api/client'
 
@@ -73,13 +74,27 @@ const ENDPOINT = '/api/yardstore'
 const columns = ["堆存单号", "关联箱号", "箱区编号", "贝位号", "堆存开始", "堆存结束", "堆存天数", "堆存状态"]
 const actions = ["确认进场", "确认提离", "撤销堆存"]
 const statuses = ["待进场", "堆存中", "待提离", "已提离"]
-const stats = [{"label": "堆存中箱量", "value": 0}, {"label": "今日进场箱量", "value": 0}, {"label": "今日提离箱量", "value": 0}]
 
 const rows = ref<Row[]>([])
 const total = ref(0)
 const errorMessage = ref('')
 const filters = ref<Record<string, string>>({})
 const filterFields = columns.slice(0, 3)
+const stats = ref<Record<string, any>>({})
+
+const statsCards = computed(() => [
+  { label: '堆存中箱量（在场，按箱号去重）', value: stats.value['在场堆存箱量'] ?? 0 },
+  { label: '今日进场箱量', value: stats.value['今日进场箱量'] ?? 0 },
+  { label: '今日提离箱量', value: stats.value['今日提离箱量'] ?? 0 },
+  {
+    label: '与箱况统计对账',
+    value: stats.value['对账一致'] === undefined ? '—' : stats.value['对账一致'] ? '一致' : '不一致',
+    hint: stats.value['对账一致']
+      ? '在场箱量与箱况统计一致'
+      : `台账挂账：${(stats.value['台账挂账箱号'] ?? []).join('、') || '存在差异'}`,
+    tone: stats.value['对账一致'] === false ? 'error-text' : 'ok-text',
+  },
+])
 
 function resetFilters() {
   filters.value = {}
@@ -99,14 +114,26 @@ async function runAction(action: string, row: Row) {
   try {
     const response = await request(`${ENDPOINT}/${row.id}/actions`, {
       method: 'POST',
-      body: JSON.stringify({ action }),
+      body: JSON.stringify({ values: { action } }),
     })
-    if (!response.ok) {
-      throw new Error('堆存记录动作未生效，请稍后重试')
+    const payload = await response.json().catch(() => null)
+    if (!response.ok || !payload?.ok) {
+      throw new Error(payload?.message ?? '堆存记录动作未生效，请稍后重试')
     }
     await reload()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '堆存记录操作失败'
+  }
+}
+
+async function reloadStats() {
+  try {
+    const response = await request(`${ENDPOINT}/stats`)
+    if (response.ok) {
+      stats.value = await response.json()
+    }
+  } catch {
+    // 统计读不出来不阻塞列表操作
   }
 }
 
@@ -121,6 +148,7 @@ async function reload() {
     const payload = await response.json()
     rows.value = payload.items ?? []
     total.value = payload.total ?? rows.value.length
+    await reloadStats()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '堆存记录列表读取失败'
   }

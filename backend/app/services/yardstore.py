@@ -1,13 +1,17 @@
 """堆存记录业务规则：状态流转、字段校验与筛选口径都收在这里。"""
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 from app.store import store
 
 MODULE = "yardstore"
+CONTAINER_MODULE = "container"
 REQUIRED_FIELDS = ["堆存单号", "关联箱号", "箱区编号"]
 STATUS_ORDER = ["待进场", "堆存中", "待提离", "已提离"]
+# 与箱况统计共用同一口径：这两种状态视为箱体仍在堆场
+ON_SITE_STATUS = ["堆存中", "待提离"]
 ACTION_RULES = {"确认进场": "堆存中", "确认提离": "已提离", "撤销堆存": "待进场"}
 NEGATIVE_ACTIONS = ["撤销堆存"]
 
@@ -59,3 +63,44 @@ class YardstoreService:
         entry["pending"] = target != STATUS_ORDER[-1]
         entry["abnormal"] = action in NEGATIVE_ACTIONS
         return entry, f"堆存单已{action}"
+
+    def yard_stats(self) -> dict[str, Any]:
+        """堆场台账统计：在场堆存、今日进场/提离，以及与箱况档案的对账。
+
+        “在场堆存箱量”按箱号去重，与集装箱档案侧的在场判断同源
+        （见 services/container.py 的 on_site_container_nos），两边对得上。
+        """
+        rows = store.rows(MODULE)
+        status_breakdown = {status: 0 for status in STATUS_ORDER}
+        on_site_nos: set[str] = set()
+        today = date.today().isoformat()
+        inbound_today = 0
+        outbound_today = 0
+
+        for row in rows:
+            status = str(row.get("status") or "")
+            if status in status_breakdown:
+                status_breakdown[status] += 1
+            container_no = str(row.get("关联箱号") or "").strip()
+            if status in ON_SITE_STATUS and container_no:
+                on_site_nos.add(container_no)
+            if str(row.get("堆存开始") or "").strip() == today:
+                inbound_today += 1
+            if status == "已提离" and str(row.get("堆存结束") or "").strip() == today:
+                outbound_today += 1
+
+        archive_nos = {
+            str(row.get("箱号") or "").strip()
+            for row in store.rows(CONTAINER_MODULE)
+            if str(row.get("箱号") or "").strip()
+        }
+        dangling = sorted(on_site_nos - archive_nos)
+
+        return {
+            "在场堆存箱量": len(on_site_nos),
+            "今日进场箱量": inbound_today,
+            "今日提离箱量": outbound_today,
+            "各堆存状态单数": status_breakdown,
+            "对账一致": not dangling,
+            "台账挂账箱号": dangling,
+        }
