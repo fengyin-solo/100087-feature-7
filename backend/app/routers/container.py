@@ -5,15 +5,36 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
-from app.schemas import ActionResult, EntryPayload, PageResult
+from app.schemas import ActionResult, ConditionBatchPayload, ConditionPrecheckPayload, EntryPayload, PageResult
 from app.services.container import ContainerService
 
 router = APIRouter(prefix="/api/container", tags=["集装箱档案"])
 
 service = ContainerService()
 
-LIST_FIELDS = ["箱号", "箱型", "箱况等级", "所属船公司", "尺寸规格", "自重", "检验到期日", "箱体状态"]
+LIST_FIELDS = ["箱号", "箱型", "箱况等级", "所属船公司", "尺寸规格", "自重", "检验日期", "检验到期日", "箱体状态"]
 STATUSES = ["待检", "可周转", "待修", "已报废"]
+
+
+@router.get("/condition/summary")
+def condition_summary() -> dict[str, Any]:
+    """箱况统计：在册、在场、待修与检验到期口径，并与堆场台账逐箱对账。"""
+    return service.condition_summary()
+
+
+@router.post("/condition/precheck")
+def precheck_condition(payload: ConditionPrecheckPayload) -> dict[str, Any]:
+    """批量改箱况提交前预检：把已报废、不在场的箱单独挑出来，只留能改的。"""
+    return service.precheck_condition(payload.ids)
+
+
+@router.post("/condition/batch", response_model=ActionResult)
+def apply_condition_batch(payload: ConditionBatchPayload) -> ActionResult:
+    """整组改箱况：能改的立即生效且不回滚；改不了的逐箱说明箱号与原因，可只重试这几箱。"""
+    result, message = service.apply_condition_batch(payload.ids, payload.grade, payload.inspect_date)
+    if result is None:
+        return ActionResult(ok=False, message=message)
+    return ActionResult(ok=not result["blocked"], message=message, entry=result)
 
 
 @router.get("", response_model=PageResult[dict])

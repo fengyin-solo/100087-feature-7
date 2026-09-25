@@ -28,6 +28,20 @@ class EntryPayload(BaseModel):
     remark: str | None = None
 
 
+class ConditionPrecheckPayload(BaseModel):
+    """批量箱况维护预检：勾选的集装箱档案 id 列表。"""
+
+    ids: list[int] = Field(default_factory=list)
+
+
+class ConditionBatchPayload(BaseModel):
+    """批量箱况维护提交：整组统一箱况等级与检验日期。"""
+
+    ids: list[int] = Field(default_factory=list)
+    grade: str = ""
+    inspect_date: str = ""
+
+
 
 class BerthEntry(BaseModel):
     """泊位计划明细结构。"""

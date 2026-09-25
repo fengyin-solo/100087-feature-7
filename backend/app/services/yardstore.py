@@ -33,6 +33,16 @@ class YardstoreService:
     def get_entry(self, entry_id: int) -> dict[str, Any] | None:
         return store.find(MODULE, entry_id)
 
+    def summary(self) -> dict[str, Any]:
+        """堆场台账统计：在场记录数与箱况统计共用同一口径（堆存中 + 待提离）。"""
+        rows = store.rows(MODULE)
+        by_status = {status: 0 for status in STATUS_ORDER}
+        for row in rows:
+            status = str(row.get("status") or "")
+            by_status[status] = by_status.get(status, 0) + 1
+        onsite = by_status.get("堆存中", 0) + by_status.get("待提离", 0)
+        return {"台账总数": len(rows), "在场记录数": onsite, "状态分布": by_status}
+
     def create_entry(self, values: dict[str, Any]) -> tuple[dict[str, Any] | None, list[str]]:
         missing = [field for field in REQUIRED_FIELDS if not str(values.get(field) or "").strip()]
         if missing:

@@ -16,6 +16,12 @@ LIST_FIELDS = ["堆存单号", "关联箱号", "箱区编号", "贝位号", "堆
 STATUSES = ["待进场", "堆存中", "待提离", "已提离"]
 
 
+@router.get("/summary")
+def ledger_summary() -> dict[str, Any]:
+    """堆场台账统计：在场记录数等口径与箱况统计保持一致，方便两边对账。"""
+    return service.summary()
+
+
 @router.get("", response_model=PageResult[dict])
 def list_entries(
     keyword: str | None = Query(default=None, description="按堆存单号检索"),
